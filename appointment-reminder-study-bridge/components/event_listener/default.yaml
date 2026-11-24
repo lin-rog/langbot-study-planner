@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: EventListener
+metadata:
+  name: appointment_reminder_listener
+  label:
+    en_US: Appointment Reminder Listener
+    zh_Hans: 约定提醒监听器
+spec:
+execution:
+  python:
+    path: default.py
+    attr: AppointmentReminderListener

@@ -1,0 +1,120 @@
+apiVersion: v1
+kind: Plugin
+metadata:
+  author: local
+  name: study-planner
+  version: 0.2.3
+  label:
+    en_US: Study Planner
+    zh_Hans: 课表学习规划提醒
+  description:
+    en_US: Timetable-based next-day plans and private reminder signals, without memory
+      injection.
+    zh_Hans: 以课表为约束预定次日计划，独立定时提醒及晚间催规划，不注入记忆。
+  icon: assets/icon.svg
+spec:
+  config:
+  - name: pipeline_uuid
+    type: string
+    required: true
+    default: ''
+    label:
+      en_US: Allowed pipeline UUID
+      zh_Hans: 生效流水线UUID
+    description:
+      en_US: Run only while the sending bot selects this pipeline and events explicitly bind this plugin.
+      zh_Hans: 仅发送机器人选中此流水线时运行；消息事件还须显式绑定本插件。留空停用，不删除课表和计划。
+  - name: appointment_bridge_enabled
+    type: boolean
+    label:
+      en_US: Read study appointments from bridge
+      zh_Hans: 读取约定提醒中的学习安排
+    default: true
+  - name: bridge_db_path
+    type: string
+    label:
+      en_US: Shared bridge SQLite path
+      zh_Hans: 共享桥接数据库路径（两插件一致）
+    default: ''
+  - name: natural_control_enabled
+    type: boolean
+    label:
+      en_US: Natural language control
+      zh_Hans: 自然语言控制
+    default: true
+  - name: enabled
+    type: boolean
+    label:
+      en_US: Enable delivery
+      zh_Hans: 启用提醒发送
+    default: false
+  - name: target_user_id
+    type: string
+    label:
+      en_US: Recipient ID (private only)
+      zh_Hans: 接收者账号（仅私聊）
+    default: ''
+    required: true
+  - name: bot_uuid
+    type: bot-selector
+    label:
+      en_US: Sending bot
+      zh_Hans: 发送机器人
+    required: true
+  - name: model_uuid
+    type: llm-model-selector
+    label:
+      en_US: Persona reminder model (required for delivery)
+      zh_Hans: 人设提醒生成模型（发送时必需）
+  - name: timezone
+    type: string
+    label:
+      en_US: Time zone
+      zh_Hans: 时区
+    default: Asia/Shanghai
+  - name: timetable_path
+    type: string
+    label:
+      en_US: 'Timetable JSON path (empty: bundled)'
+      zh_Hans: 课表JSON路径（留空使用内置课表）
+    default: ''
+  - name: lead_minutes
+    type: integer
+    label:
+      en_US: Reminder lead (0–120 minutes)
+      zh_Hans: 提前提醒时间（0–120分钟）
+    default: 10
+  - name: class_reminders_enabled
+    type: boolean
+    label:
+      en_US: Class reminders
+      zh_Hans: 上课提醒
+    default: true
+  - name: plan_reminders_enabled
+    type: boolean
+    label:
+      en_US: Personal plan reminders
+      zh_Hans: 个人计划提醒
+    default: true
+  - name: nag_enabled
+    type: boolean
+    label:
+      en_US: Planning nudges (start after 22:00, until acknowledged)
+      zh_Hans: 催规划（22点后启动，直到明确回复）
+    default: true
+  - name: reminder_instruction
+    type: string
+    label:
+      en_US: Persona reminder wording preferences
+      zh_Hans: 人设提醒表达要求（单次信号生成）
+    default: 沿用当前人设与语言，像本人发来一条自然的私聊提醒。
+  components:
+    EventListener:
+      fromDirs:
+      - path: components/event_listener/
+        maxDepth: 1
+  pages: []
+execution:
+  python:
+    path: main.py
+    attr: StudyPlanner

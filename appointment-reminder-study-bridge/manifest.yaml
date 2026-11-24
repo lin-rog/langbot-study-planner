@@ -1,0 +1,155 @@
+apiVersion: v1
+kind: Plugin
+metadata:
+  author: lin-rog
+  name: appointment-reminder
+  version: 0.1.4
+  description:
+    en_US: Persists explicit conversational appointments and lets the bot speak when
+      they become due.
+    zh_Hans: 识别并持久化明确约定，在约定时间到来时让机器人主动发言。
+  label:
+    en_US: Appointment Reminder
+    zh_Hans: 约定提醒
+  icon: assets/icon.svg
+spec:
+  config:
+  - name: enabled
+    type: boolean
+    label:
+      en_US: Enable appointment reminders
+      zh_Hans: 启用约定提醒
+    description:
+      en_US: Master switch. Existing appointments remain stored while disabled.
+      zh_Hans: 总开关；关闭期间已有约定仍会保留，但不会发送。
+    default: false
+  - name: target_user_id
+    type: string
+    label:
+      en_US: Target QQ
+      zh_Hans: 目标 QQ
+    description:
+      en_US: Only this private conversation can create and receive reminders.
+      zh_Hans: 只有该 QQ 私聊可以登记并接收提醒。
+    default: ''
+    required: true
+  - name: bot_uuid
+    type: bot-selector
+    label:
+      en_US: Sending bot
+      zh_Hans: 发送机器人
+    description:
+      en_US: Fallback bot after restart. The latest valid conversation bot is remembered
+        automatically.
+      zh_Hans: 重启后的备用发送机器人；插件也会自动记住最近一次有效私聊所用机器人。
+    required: true
+  - name: model_uuid
+    type: llm-model-selector
+    label:
+      en_US: Understanding and wording model
+      zh_Hans: 约定识别与措辞模型
+    description:
+      en_US: Extracts explicit appointments and writes the due message in the active
+        persona.
+      zh_Hans: 用于识别明确约定，并按现有人设生成到点发言。
+    required: true
+  - name: timezone
+    type: string
+    label:
+      en_US: Time zone
+      zh_Hans: 时间基准
+    default: Asia/Shanghai
+  - name: natural_detection_enabled
+    type: boolean
+    label:
+      en_US: Detect appointments in chat
+      zh_Hans: 自动识别聊天约定
+    description:
+      en_US: Only explicit commitments with a minute-resolvable time are accepted.
+      zh_Hans: 仅登记具有明确承诺/提醒意图且能解析到分钟的内容。
+    default: true
+  - name: persona_message_enabled
+    type: boolean
+    label:
+      en_US: Generate due message in persona
+      zh_Hans: 到点时按人设生成发言
+    description:
+      en_US: When disabled, sends the fixed template without calling a model.
+      zh_Hans: 关闭后不调用模型，直接用固定模板发送。
+    default: true
+  - name: fixed_message_template
+    type: string
+    label:
+      en_US: Fixed reminder template
+      zh_Hans: 固定提醒模板
+    description:
+      en_US: Supports {summary} and {time}.
+      zh_Hans: 支持 {summary} 和 {time} 占位符；模型失败时也使用它。
+    default: 到约定的时间了：{summary}
+  - name: late_grace_minutes
+    type: integer
+    label:
+      en_US: Late-delivery grace
+      zh_Hans: 离线补发期限（分钟）
+    description:
+      en_US: Send overdue reminders after restart within this many minutes.
+      zh_Hans: 机器人离线后重启，逾期不超过该时长的约定仍会补发。
+    default: 360
+  - name: send_max_attempts
+    type: integer
+    label:
+      en_US: Send attempts
+      zh_Hans: 发送尝试次数
+    default: 3
+  - name: max_pending
+    type: integer
+    label:
+      en_US: Maximum pending appointments
+      zh_Hans: 最多保留未完成约定
+    default: 50
+  - name: add_command
+    type: string
+    label:
+      en_US: Manual add command
+      zh_Hans: 手动添加命令
+    description:
+      en_US: Usage follows the command with YYYY-MM-DD HH:MM and a description.
+      zh_Hans: 用法：!约定 2026-09-05 15:00 提醒内容。
+    default: '!约定'
+  - name: list_command
+    type: string
+    label:
+      en_US: List command
+      zh_Hans: 查看约定命令
+    default: '!约定列表'
+  - name: cancel_command
+    type: string
+    label:
+      en_US: Cancel command
+      zh_Hans: 取消约定命令
+    description:
+      en_US: Usage follows the command with the short ID shown by the list command.
+      zh_Hans: 用法：!取消约定 短编号。
+    default: '!取消约定'
+  - name: study_bridge_enabled
+    type: boolean
+    default: true
+    label:
+      en_US: Export study appointment snapshots
+      zh_Hans: 向学习规划插件同步约定
+  - name: study_bridge_db_path
+    type: string
+    default: ''
+    label:
+      en_US: Shared study bridge SQLite path
+      zh_Hans: 共享学习桥接数据库路径
+  components:
+    EventListener:
+      fromDirs:
+      - path: components/event_listener/
+        maxDepth: 1
+  pages: []
+execution:
+  python:
+    path: main.py
+    attr: AppointmentReminder
