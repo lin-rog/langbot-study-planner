@@ -2,6 +2,7 @@
 import hashlib
 import json
 import re
+import secrets
 from datetime import datetime, time, timedelta
 
 
@@ -137,14 +138,54 @@ class Planner:
                     '\n'.join(f"!约定 {tomorrow} {i['time'][:5]} {i['title']}" for i in items)) if items else '明日没有可导出的个人计划。'
         return None
 
+    @staticmethod
+    def event_key(day, item):
+        return 'event:' + hashlib.sha256(json.dumps([str(day), item], sort_keys=True).encode()).hexdigest()[:24]
+
+    def daily_class_job(self, day, now):
+        classes = [{'time': e['time'], 'title': e['course'], 'room': e.get('room', ''), 'kind': 'class'}
+                   for e in self.classes(day)]
+        if not classes:
+            return None
+        daykey = str(day)
+        key = 'class-day:' + daykey
+        if key in self.state['delivery']:
+            return None
+        schedules = self.state.setdefault('class_daily', {})
+        schedule = schedules.get(daykey, {})
+        # An old per-class delivery also consumes today's one summary allowance.
+        if schedule.get('status') == 'legacy_consumed':
+            return None
+        if any(self.event_key(day, item) in self.state['delivery'] for item in classes):
+            schedules[daykey] = {'status': 'legacy_consumed', 'at': now.isoformat()}
+            return None
+        first = datetime.combine(day, time.fromisoformat(classes[0]['time'][:5]), now.tzinfo)
+        earliest = first - timedelta(minutes=60)
+        deadline = first - timedelta(minutes=30)
+        # No late catch-up after the allowed window, even following downtime.
+        if now > deadline:
+            return None
+        if schedule.get('first_start') != first.isoformat():
+            due = earliest + timedelta(seconds=secrets.randbelow(1801))
+            schedule = {'first_start': first.isoformat(), 'due_at': due.isoformat()}
+            schedules[daykey] = schedule
+        due = datetime.fromisoformat(schedule['due_at'])
+        if due <= now <= deadline:
+            return {'id': key, 'kind': 'class', 'date': daykey, 'classes': classes,
+                    'first_start': first.isoformat(), 'due_at': due.isoformat(),
+                    'expires_at': deadline.isoformat(), 'delivery_mode': 'text_only'}
+        return None
+
     def jobs(self, now, cfg):
         jobs = []
         for day in (now.date(), now.date() + timedelta(days=1)):
             if not self.active(day):
                 continue
-            things = []
             if cfg.get('class_reminders_enabled', True):
-                things += [{'time': e['time'], 'title': e['course'], 'room': e.get('room', ''), 'kind': 'class'} for e in self.classes(day)]
+                summary = self.daily_class_job(day, now)
+                if summary:
+                    jobs.append(summary)
+            things = []
             if cfg.get('plan_reminders_enabled', True):
                 things += [dict(i, kind='plan', room='') for i in self.state['plans'].get(str(day), {}).get('items', [])]
             lead = max(0, min(120, int(cfg.get('lead_minutes', 10))))
@@ -153,7 +194,7 @@ class Planner:
                 due = start - timedelta(minutes=lead)
                 # Never deliver stale reminders once the activity starts.
                 if due <= now < start + timedelta(seconds=60 if lead == 0 else 0.001):
-                    key = 'event:' + hashlib.sha256(json.dumps([str(day), item], sort_keys=True).encode()).hexdigest()[:24]
+                    key = self.event_key(day, item)
                     if key not in self.state['delivery']:
                         jobs.append({'id': key, 'kind': item['kind'], 'date': str(day), 'item': item,
                                      'text': f"{item['time']} {item['title']} {item['room']}，准备开始了。"})
@@ -190,6 +231,7 @@ class Planner:
         for key in ('plans', 'ack', 'nag'):
             self.state[key] = {d: v for d, v in self.state[key].items()
                                if d >= cutoff or (key == 'nag' and d in pending)}
+        self.state['class_daily'] = {d: v for d, v in self.state.get('class_daily', {}).items() if d >= cutoff}
         self.state['delivery'] = {k: v for k, v in self.state['delivery'].items() if v['at'][:10] >= cutoff}
         self.state['wording_retry_after'] = {k: v for k, v in self.state.get('wording_retry_after', {}).items()
                                            if datetime.fromisoformat(v) > now}

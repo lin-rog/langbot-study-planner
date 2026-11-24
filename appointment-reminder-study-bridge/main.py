@@ -1,6 +1,7 @@
 from __future__ import annotations
 from behavior_bus import publish
 from study_bridge import publish as publish_study_snapshot
+from day_rules import active_appointments, expire_studies, expired_study
 
 import asyncio
 import hashlib
@@ -112,6 +113,8 @@ class AppointmentReminder(BasePlugin):
         self._reference_questions = set()
         self._last_user_turn = {}
         self._state = await self._load_state()
+        if expire_studies(self._state.get("reminders", []), self.now()):
+            await self._save_locked()
         self._export_study()
         self._task = asyncio.create_task(self._scheduler(), name="appointment-reminder-scheduler")
 
@@ -162,6 +165,7 @@ class AppointmentReminder(BasePlugin):
             return {}
 
     async def _save_locked(self) -> None:
+        expire_studies(self._state.get("reminders", []), self.now())
         payload = json.dumps(self._state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if self._storage_available:
             try:
@@ -182,7 +186,7 @@ class AppointmentReminder(BasePlugin):
             return
         try:
             publish_study_snapshot(str(cfg.get('target_user_id') or ''),
-                _selector_uuid(cfg.get('bot_uuid')), self._state.get('reminders', []),
+                _selector_uuid(cfg.get('bot_uuid')), active_appointments(self._state.get('reminders', []), self.now()),
                 bool(cfg.get('enabled', False)), cfg.get('study_bridge_db_path') or None)
         except Exception:
             LOGGER.exception('Study snapshot publication failed')
@@ -441,6 +445,8 @@ class AppointmentReminder(BasePlugin):
 
     async def list_pending(self) -> list[dict[str, Any]]:
         async with self._lock:
+            if expire_studies(self._state.get("reminders", []), self.now()):
+                await self._save_locked()
             items = [dict(item) for item in self._state.get("reminders", []) if item.get("status") == "pending"]
         return sorted(items, key=lambda item: str(item.get("due_at") or ""))
 
@@ -500,6 +506,9 @@ class AppointmentReminder(BasePlugin):
             return fallback[:2000]
 
     async def _tick(self) -> None:
+        async with self._lock:
+            if expire_studies(self._state.get("reminders", []), self.now()):
+                await self._save_locked()
         cfg = self.cfg()
         if not bool(cfg.get("enabled", False)):
             self._export_study()
@@ -531,6 +540,24 @@ class AppointmentReminder(BasePlugin):
             text = '*' + text.lstrip().lstrip('*').lstrip()
             bot_uuid = str(self._state.get("bot_uuid") or "") or _selector_uuid(cfg.get("bot_uuid"))
             target_id = str(cfg.get("target_user_id") or "").strip()
+            async with self._lock:
+                fresh = self.cfg()
+                same_destination = (
+                    bool(fresh.get("enabled", False))
+                    and _selector_uuid(fresh.get("bot_uuid")) == _selector_uuid(cfg.get("bot_uuid"))
+                    and str(fresh.get("target_user_id") or "").strip() == target_id
+                )
+                if expired_study(chosen, self.now()):
+                    await self._save_locked()
+                    publish(target_id, 'appointment.deferred', resource='appointment', busy=False)
+                    return
+                still_pending = any(
+                    item.get("id") == chosen.get("id") and item.get("status") == "pending"
+                    for item in self._state.get("reminders", [])
+                )
+            if not same_destination or not still_pending:
+                publish(target_id, 'appointment.deferred', resource='appointment', busy=False)
+                return
             try:
                 await self.send_message(bot_uuid, "person", target_id, MessageChain([Plain(text=text)]))
             except Exception:

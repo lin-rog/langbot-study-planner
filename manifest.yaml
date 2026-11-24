@@ -3,7 +3,7 @@ kind: Plugin
 metadata:
   author: local
   name: study-planner
-  version: 0.2.3
+  version: 0.2.8
   label:
     en_US: Study Planner
     zh_Hans: 课表学习规划提醒

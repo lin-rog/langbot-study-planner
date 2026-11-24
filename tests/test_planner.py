@@ -6,6 +6,7 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -88,11 +89,15 @@ class CoreTests(unittest.TestCase):
         p = planner()
         p.handle('!规划 不另作安排', at('2026-10-11T21:00'))
         self.assertFalse(p.jobs(at('2026-10-11T22:00'), {}))
-        now = at('2026-10-17T10:15')
-        job = p.jobs(now, {})[0]
+        now = at('2026-10-17T09:40')
+        with patch('core.secrets.randbelow', return_value=900):
+            self.assertFalse(p.jobs(at('2026-10-17T09:39:59'), {}))
+            restarted = planner(json.loads(json.dumps(p.state)))
+            job = restarted.jobs(now, {})[0]
         self.assertEqual(job['kind'], 'class')
-        p.reserve(job, now)
-        self.assertFalse(planner(json.loads(json.dumps(p.state))).jobs(now, {}))
+        self.assertEqual(len(job['classes']), 3)
+        restarted.reserve(job, now)
+        self.assertFalse(planner(json.loads(json.dumps(restarted.state))).jobs(now, {}))
         self.assertFalse(p.jobs(at('2026-10-17T10:26'), {}))
 
 

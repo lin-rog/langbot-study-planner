@@ -198,7 +198,7 @@ class StudyPlanner(BasePlugin):
                 continue
             due = datetime.fromisoformat(item['due_at']).astimezone(self.now().tzinfo)
             created = datetime.fromisoformat(item['created_at']).astimezone(self.now().tzinfo)
-            if created.date() == due.date() - timedelta(days=1):
+            if due.date() >= self.now().date() and created.date() == due.date() - timedelta(days=1):
                 days.add(str(due.date()))
         self.planner.external_days = days
         return True
@@ -241,6 +241,19 @@ class StudyPlanner(BasePlugin):
 
     async def render_signal(self, job):
         cfg = self.cfg()
+        if job['kind'] == 'class':
+            # Send exact timetable facts as text, without model or media tools.
+            japanese = any('日本語' in p for p in self.planner.state.get('persona_prompt', []))
+            tomorrow = job['date'] != str(self.now().date())
+            if japanese:
+                header = '明日の授業をまとめて送るね。' if tomorrow else '今日の授業をまとめて送るね。'
+            else:
+                header = '明天的课表发你啦：' if tomorrow else '今天的课表发你啦：'
+            lines = ['*' + header]
+            for item in job['classes']:
+                lines.append(' '.join(str(item.get(key) or '').strip()
+                                      for key in ('time', 'title', 'room')).rstrip())
+            return '\n'.join(lines)
         model = selector(cfg.get('model_uuid'))
         persona = self.planner.state.get('persona_prompt', [])
         if not model or not persona:
@@ -314,8 +327,11 @@ class StudyPlanner(BasePlugin):
                 bridge_ready = self.sync_appointments()
                 if not bridge_ready:
                     cfg = dict(cfg, nag_enabled=False)
+                previous_schedule = dict(self.planner.state.get('class_daily', {}))
                 self.planner.prune(self.now())
                 jobs = self.planner.jobs(self.now(), cfg)
+                if previous_schedule != self.planner.state.get('class_daily', {}):
+                    await self.save()
             for job in jobs:
                 async with self.lock:
                     started = self.planner.state.get('reply_started_at')
